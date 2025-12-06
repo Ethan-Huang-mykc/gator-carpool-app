@@ -35,6 +35,38 @@ def get_coords(address):
     except Exception:
         return None
 
+# --- 地址候选项函数：使用 Geocoding 模糊搜索 ---
+@st.cache_data(ttl=24 * 3600)
+def get_address_options(partial_address):
+    """
+    接收部分地址，返回一个包含最多5个精确地址字符串的列表。
+    """
+    if not partial_address or len(partial_address) < 3:
+        return []
+        
+    try:
+        api_key = st.secrets["google"]["api_key"]
+        
+        # 构造 Geocoding API 请求
+        geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {
+            "address": partial_address,
+            "key": api_key,
+            "bounds": "30,-120|50,-70" # 限制在美国东北部区域 (可选，提高精确度)
+        }
+        
+        response = requests.get(geocode_url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        
+        options = []
+        if data.get("status") == "OK" and data["results"]:
+            # 提取前5个结果作为候选项
+            for result in data["results"][:5]:
+                options.append(result['formatted_address'])
+        return options
+    except Exception:
+        return []
 
 # --- 路线计算函数：调用 Directions API (使用 requests) ---
 @st.cache_data(ttl=24 * 3600)

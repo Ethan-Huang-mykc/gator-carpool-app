@@ -4,40 +4,42 @@ import pandas as pd
 
 # 假设这是一个占位符函数，模拟调用 Maps API
 # 在实际运行时，你需要用真实工具替代
+
+# 注意：在 Streamlit 部署环境中，直接调用 Maps API 需要付费密钥和安装特定库。
+# 暂时保持模拟数据，但结构已调整为方便未来接入 API 的模式
 def find_carpool_route(origin, destination, waypoints):
     """
-    模拟调用 Maps API 计算多点路线。
-    由于 Streamlit 环境不能直接调用外部 API 工具，我们使用一个虚构的函数来展示结果。
+    接收起点、终点和途经点，返回行程数据。
+    这是未来接入 Maps API 的核心函数。
     """
     if not origin or not destination:
         return None, None, None
         
-    # --- 这里是你的数据科学和 API 调用的核心逻辑 ---
+    # --- 实际API调用代码将放在这里 ---
     
-    # 假设 API 返回的计算结果
+    # *** 临时模拟数据 (保留与之前的模拟计算逻辑一致) ***
     import random
-    base_distance = random.randint(150, 400) # km
-    base_duration = random.randint(150, 300) # minutes
+    base_distance_m = random.randint(150, 400) * 1000  # 距离转换为米
+    base_duration_s = random.randint(150, 300) * 60     # 时长转换为秒
     
-    # 根据途经点数量增加绕路距离和时间
+    # 增加绕路数据
     if waypoints:
         num_waypoints = len(waypoints)
-        extra_distance = num_waypoints * random.randint(5, 20)
-        extra_duration = num_waypoints * random.randint(10, 30)
+        base_distance_m += num_waypoints * random.randint(10, 30) * 1000
+        base_duration_s += num_waypoints * random.randint(5, 15) * 60
         
-        total_distance = f"{base_distance + extra_distance} 公里"
-        total_duration = f"{int((base_duration + extra_duration) / 60)} 小时 {int((base_duration + extra_duration) % 60)} 分钟"
-    else:
-        total_distance = f"{base_distance} 公里"
-        total_duration = f"{int(base_duration / 60)} 小时 {int(base_duration % 60)} 分钟"
-        
-    # 模拟地图链接（实际地图API会返回真实的URL）
+    # 为显示准备格式化的字符串
+    total_distance_km = round(base_distance_m / 1000, 1)
+    total_duration_h = int(base_duration_s / 3600)
+    total_duration_m = int((base_duration_s % 3600) / 60)
+    
+    total_distance = f"{total_distance_km} 公里"
+    total_duration = f"{total_duration_h} 小时 {total_duration_m} 分钟"
+    
     map_url = "https://example.com/map/view_route" 
         
+    # 关键：返回格式化的字符串供界面显示
     return total_distance, total_duration, map_url
-
-
-# --- Streamlit 界面 ---
 
 st.set_page_config(page_title="简易拼车行程计算器", layout="wide")
 

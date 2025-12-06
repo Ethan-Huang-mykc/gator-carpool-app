@@ -1,85 +1,170 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
+import googlemaps # 用于 Google API 调用
+import datetime
+import random # 仅作为最终错误回退，但我们现在依赖真实 API
 
-# 假设这是一个占位符函数，模拟调用 Maps API
-# 在实际运行时，你需要用真实工具替代
+# ----------------------------------------------------------------------
+# 核心功能函数
+# ----------------------------------------------------------------------
 
-# 注意：在 Streamlit 部署环境中，直接调用 Maps API 需要付费密钥和安装特定库。
-# 暂时保持模拟数据，但结构已调整为方便未来接入 API 的模式
+# --- 地理编码函数：将地址转换为坐标 ---
+@st.cache_data(ttl=24 * 3600)
+def get_coords(address):
+    """使用 Google Geocoding API 将地址转换为 (纬度, 经度)"""
+    if not address:
+        return None
+    try:
+        api_key = st.secrets["google"]["api_key"]
+        gmaps = googlemaps.Client(key=api_key)
+        
+        geocode_result = gmaps.geocode(address)
+        
+        if geocode_result:
+            location = geocode_result[0]['geometry']['location']
+            # 返回一个包含 'lat' 和 'lon' 的字典，符合 st.map 的要求
+            return {'lat': location['lat'], 'lon': location['lng']}
+        return None
+    except Exception:
+        # 地理编码失败不显示错误，只返回 None
+        return None
+
+
+# --- 路线计算函数：调用 Directions API ---
+@st.cache_data(ttl=24 * 3600) # 缓存结果，避免对同一地址重复调用和重复收费
 def find_carpool_route(origin, destination, waypoints):
     """
-    接收起点、终点和途经点，返回行程数据。
-    这是未来接入 Maps API 的核心函数。
+    使用 Google Directions API 计算真实的路线数据。
     """
     if not origin or not destination:
         return None, None, None
+    
+    try:
+        # 从 Streamlit Secrets 中读取安全的 API Key
+        api_key = st.secrets["google"]["api_key"]
+        gmaps = googlemaps.Client(key=api_key)
         
-    # --- 实际API调用代码将放在这里 ---
-    
-    # *** 临时模拟数据 (保留与之前的模拟计算逻辑一致) ***
-    import random
-    base_distance_m = random.randint(150, 400) * 1000  # 距离转换为米
-    base_duration_s = random.randint(150, 300) * 60     # 时长转换为秒
-    
-    # 增加绕路数据
-    if waypoints:
-        num_waypoints = len(waypoints)
-        base_distance_m += num_waypoints * random.randint(10, 30) * 1000
-        base_duration_s += num_waypoints * random.randint(5, 15) * 60
+        # 调用 Directions API
+        directions_result = gmaps.directions(
+            origin=origin,
+            destination=destination,
+            waypoints=waypoints,
+            optimize_waypoints=True, # 启用 Google 路线优化
+            mode="driving"
+        )
         
-    # 为显示准备格式化的字符串
-    total_distance_km = round(base_distance_m / 1000, 1)
-    total_duration_h = int(base_duration_s / 3600)
-    total_duration_m = int((base_duration_s % 3600) / 60)
-    
-    total_distance = f"{total_distance_km} 公里"
-    total_duration = f"{total_duration_h} 小时 {total_duration_m} 分钟"
-    
-    map_url = "https://example.com/map/view_route" 
+        if not directions_result:
+            return None, None, None
+            
+        # 提取总距离和总时长 (Directions API 返回的是 legs 列表，需要累加)
+        total_distance_m = 0
+        total_duration_s = 0
         
-    # 关键：返回格式化的字符串供界面显示
-    return total_distance, total_duration, map_url
+        for leg in directions_result[0]['legs']:
+            total_distance_m += leg['distance']['value']
+            total_duration_s += leg['duration']['value']
+
+        # 格式化输出
+        total_distance_km = round(total_distance_m / 1000, 1)
+        
+        # 转换为小时和分钟
+        total_duration_h = int(total_duration_s / 3600)
+        total_duration_m = int((total_duration_s % 3600) / 60)
+        
+        total_distance = f"{total_distance_km} 公里"
+        total_duration = f"{total_duration_h} 小时 {total_duration_m} 分钟"
+        
+        # 模拟地图链接
+        map_url = "https://maps.google.com/?daddr=" # 简化处理
+        
+        return total_distance, total_duration, map_url
+        
+    except Exception as e:
+        # 捕捉 API 密钥错误、网络错误或数据解析错误
+        # st.error(f"路径计算失败，请检查地址输入或 API 密钥: {e}") # 生产环境中可以注释掉，避免泄露错误细节
+        return None, None, None
+# ----------------------------------------------------------------------
+
+
+# --- Streamlit 界面 ---
 
 st.set_page_config(page_title="简易拼车行程计算器", layout="wide")
 
-st.title("🚗 城际拼车行程计算器 (MVP)") # <-- 确保标题在外面
+st.title("🚗 城际拼车行程计算器 (MVP)")
 st.markdown("---")
 
-#git add . 将整个表单放在外面，确保它能被初次渲染
 
+# 使用 form 结构收集数据，统一提交
 with st.form("carpool_form"):
-    st.header("1. 行程路线输入") # <-- 确保 header 在外面
+    st.header("1. 行程路线输入") 
     
     col1, col2 = st.columns(2)
     
     with col1:
-        origin = st.text_input("📍 司机出发地 (起点)", placeholder="例如：深圳市南山区科技园")
+        origin = st.text_input("📍 司机出发地 (起点)", placeholder="例如：Shenzhen, China")
     
     with col2:
-        destination = st.text_input("🏁 最终目的地", placeholder="例如：广州白云国际机场")
+        destination = st.text_input("🏁 最终目的地", placeholder="例如：Guangzhou, China")
 
     st.subheader("2. 途经点/乘客接送点 (选填)")
     
     waypoints_input = st.text_area("中途接送点 (用逗号分隔)", 
-                                   placeholder="例如：东莞市虎门站, 广州南站")
+                                   placeholder="例如：Dongguan, China, Huizhou, China")
 
-    # 按钮也必须在 form 内部，但后续显示结果的代码要在 form 外部
+    # 按钮必须在 form 内部
     submitted = st.form_submit_button("📐 计算最佳路线")
 
+# ----------------------------------------------------------------------
+# 实时地图可视化 (在表单之后)
+# ----------------------------------------------------------------------
 
-# 👇👇👇 只有当按钮被点击时，才执行计算和结果展示 👇👇👇
+# 1. 获取起点和终点的坐标
+origin_coords = get_coords(origin)
+destination_coords = get_coords(destination)
+
+# 2. 准备地图数据帧
+map_data = []
+
+if origin_coords:
+    map_data.append({'lat': origin_coords['lat'], 'lon': origin_coords['lon'], 'name': '起点'})
+
+if destination_coords:
+    map_data.append({'lat': destination_coords['lat'], 'lon': destination_coords['lon'], 'name': '终点'})
+
+# 3. 显示地图
+if map_data:
+    df = pd.DataFrame(map_data)
+    
+    st.subheader("📍 实时路线可视化")
+    
+    # 计算地图中心点
+    center_lat = df['lat'].mean()
+    center_lon = df['lon'].mean()
+    
+    st.map(df, 
+           latitude=center_lat,
+           longitude=center_lon,
+           zoom=6) 
+else:
+    st.info("请输入起点和终点，地图将自动显示位置。")
+
+
+# ----------------------------------------------------------------------
+# 计算结果展示 (点击提交后)
+# ----------------------------------------------------------------------
+
 if submitted:
     if not origin or not destination:
         st.error("请输入完整的起点和终点！")
     else:
-        # 清理途经点输入 (确保这块代码是正确的)
+        # 清理途经点输入
         waypoints_list = [w.strip() for w in waypoints_input.split(',') if w.strip()]
         
         st.subheader("--- 计算结果 ---")
         
-        with st.spinner("正在调用路径优化算法..."):
-            # 调用核心计算函数 (此处仍使用模拟函数)
+        with st.spinner("正在调用 Google 路径优化算法..."):
+            # 调用核心计算函数
             distance, duration, map_link = find_carpool_route(origin, destination, waypoints_list)
         
         if distance:
@@ -94,7 +179,11 @@ if submitted:
                 st.info(f"包含 {len(waypoints_list)} 个途经点：{', '.join(waypoints_list)}")
             
             st.markdown(f"**[点击查看详细地图路线 (模拟链接)]({map_link})**")
-        else:
-            st.error("计算失败，请检查地址输入是否有效。")
+            
+            # ----------------------------------------------------------------------
+            # 👇 未来费用分摊模型代码将放在这里 👇
+            # ----------------------------------------------------------------------
 
-# ... (确保你在 find_carpool_route 函数中返回了有效值，哪怕是模拟的) ...
+        else:
+            # 如果 find_carpool_route 返回 None (API 失败)
+            st.error("计算失败，请检查地址输入是否有效，或确认您的 Google Maps API 密钥已正确设置且服务已启用。")
